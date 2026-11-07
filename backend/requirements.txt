@@ -1,0 +1,12 @@
+fastapi
+uvicorn[standard]
+cryptography
+aiosqlite
+h11
+brotli
+zstandard
+platformdirs
+wsproto>=1.2.0
+google-genai
+keyring
+platformdirs
