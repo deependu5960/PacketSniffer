@@ -1,0 +1,148 @@
+@import "tailwindcss";
+
+/* ============================================================
+   Base / theme
+   ============================================================ */
+:root {
+  --bg: #0c0c0e;
+  --surface: #141416;
+  --surface-2: #171719;
+  --border: rgba(255, 255, 255, 0.08);
+  --text: #ececf1;
+  --text-muted: #9a9aa8;
+  --text-dim: #858591;
+  --accent: #34d399;      /* emerald-400 */
+  --accent-dim: #10b981;  /* emerald-500 */
+  --warn: #fbbf24;        /* amber-400 */
+  --danger: #fb7185;      /* rose-400 */
+
+  color-scheme: dark;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background-color: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Better default selection in the dark theme */
+::selection {
+  background-color: rgba(52, 211, 153, 0.28);
+  color: #ffffff;
+}
+
+/* Consistent focus ring for keyboard users */
+:focus-visible {
+  outline: 2px solid rgba(52, 211, 153, 0.6);
+  outline-offset: 2px;
+}
+
+/* ============================================================
+   Scrollbars — dark, thin, theme-matched
+   Applied to every scroll container (main, sidebar nav, lists,
+   textareas, dropdowns).
+   ============================================================ */
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #2a2a30 transparent;
+}
+
+/* WebKit / Blink (Chrome, Edge, Safari, Electron) */
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: #26262b;
+  border-radius: 9999px;
+  border: 2px solid transparent;   /* creates the inset look */
+  background-clip: padding-box;
+  transition: background-color 150ms ease;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: #3a3a42;
+}
+
+*::-webkit-scrollbar-thumb:active {
+  background-color: #4a4a54;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Hide scrollbar arrows / buttons (Windows) */
+*::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* ============================================================
+   Optional scrollbar variants
+   Add the class to a scroll container to override the default.
+   ============================================================ */
+
+/* Emerald accent — use on the active tool panel / editor */
+.scroll-emerald {
+  scrollbar-color: rgba(52, 211, 153, 0.5) transparent;
+}
+.scroll-emerald::-webkit-scrollbar-thumb {
+  background-color: rgba(52, 211, 153, 0.35);
+}
+.scroll-emerald::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(52, 211, 153, 0.55);
+}
+
+/* Hidden but scrollable — for horizontal chip rows etc. */
+.scroll-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scroll-none::-webkit-scrollbar {
+  display: none;
+}
+
+/* ============================================================
+   Small utilities
+   ============================================================ */
+
+/* Subtle top-to-bottom fade for long scroll areas */
+.scroll-fade {
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 16px,
+    #000 calc(100% - 16px),
+    transparent 100%
+  );
+}
+
+/* Prevent textarea resize grip from breaking the dark theme */
+textarea {
+  scrollbar-width: thin;
+  scrollbar-color: #2a2a30 transparent;
+}
+
+/* Keep code blocks from blowing out the layout */
+pre,
+code {
+  font-variant-ligatures: none;
+}
+pre {
+  overflow-x: auto;
+}
