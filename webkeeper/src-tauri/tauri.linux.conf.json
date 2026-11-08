@@ -1,0 +1,17 @@
+{
+  "mainBinaryName": "packetsniffer",
+  "bundle": {
+    "targets": ["deb"],
+    "category": "DeveloperTool",
+    "shortDescription": "HTTP/HTTPS interception proxy for security testing",
+    "longDescription": "PacketSniffer is a local HTTP/HTTPS security testing proxy with an interceptor, repeater, intruder, encoder/decoder and an optional Gemini-powered AI assistant.",
+    "linux": {
+      "deb": {
+        "section": "net",
+        "priority": "optional",
+        "depends": ["xdg-utils"],
+        "postInstallScript": "./linux/postinst.sh"
+      }
+    }
+  }
+}

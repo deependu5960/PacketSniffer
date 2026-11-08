@@ -1,6 +1,6 @@
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpStream;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::thread;
@@ -10,6 +10,13 @@ use tauri::path::BaseDirectory;
 use tauri::Manager;
 
 struct BackendProcess(Mutex<Option<Child>>);
+
+// The PyInstaller backend is "PacketSnifferBackend.exe" on Windows and a plain
+// "PacketSnifferBackend" executable on Linux.
+#[cfg(windows)]
+const BACKEND_BINARY: &str = "PacketSnifferBackend.exe";
+#[cfg(not(windows))]
+const BACKEND_BINARY: &str = "PacketSnifferBackend";
 
 fn backend_is_ready() -> bool {
     let Ok(mut stream) = TcpStream::connect(("127.0.0.1", 8765)) else {
@@ -52,10 +59,12 @@ fn wait_for_backend() -> bool {
 
 fn locate_backend(app: &tauri::App) -> Result<PathBuf, Box<dyn std::error::Error>> {
     // Installed application: use the bundled backend resource.
-    if let Ok(resource_path) = app.path().resolve(
-        "backend/PacketSnifferBackend.exe",
-        BaseDirectory::Resource,
-    ) {
+    let resource_relative = format!("backend/{}", BACKEND_BINARY);
+
+    if let Ok(resource_path) = app
+        .path()
+        .resolve(&resource_relative, BaseDirectory::Resource)
+    {
         if resource_path.is_file() {
             return Ok(resource_path);
         }
@@ -63,7 +72,8 @@ fn locate_backend(app: &tauri::App) -> Result<PathBuf, Box<dyn std::error::Error
 
     // Development fallback: use the existing PyInstaller distribution.
     let development_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../backend/dist/PacketSnifferBackend/PacketSnifferBackend.exe");
+        .join("../../backend/dist/PacketSnifferBackend")
+        .join(BACKEND_BINARY);
 
     if development_path.is_file() {
         return Ok(development_path);
@@ -71,8 +81,69 @@ fn locate_backend(app: &tauri::App) -> Result<PathBuf, Box<dyn std::error::Error
 
     Err(std::io::Error::new(
         std::io::ErrorKind::NotFound,
-        "PacketSnifferBackend.exe was not found in application resources.",
-    ).into())
+        format!("{} was not found in application resources.", BACKEND_BINARY),
+    )
+    .into())
+}
+
+// A packaged file can lose its executable bit (for example when the app is
+// run from an unpacked archive). Restore it when we are allowed to; when the
+// file is root-owned this silently does nothing and the .deb's postinst
+// script is what guarantees the permission.
+#[cfg(unix)]
+fn ensure_executable(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+
+    if let Ok(metadata) = std::fs::metadata(path) {
+        let mut permissions = metadata.permissions();
+        let mode = permissions.mode();
+
+        if mode & 0o111 == 0 {
+            permissions.set_mode(mode | 0o755);
+            let _ = std::fs::set_permissions(path, permissions);
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn ensure_executable(_path: &Path) {}
+
+// Linux: keep the backend's output in ~/.local/share/PacketSniffer/backend.log
+// (recreated on every launch) so problems can be diagnosed. This is the same
+// per-user data folder the backend itself uses.
+#[cfg(target_os = "linux")]
+fn open_backend_log() -> Option<std::fs::File> {
+    let data_home = std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .or_else(|| {
+            std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share"))
+        })?;
+
+    let directory = data_home.join("PacketSniffer");
+    std::fs::create_dir_all(&directory).ok()?;
+
+    std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(directory.join("backend.log"))
+        .ok()
+}
+
+#[cfg(not(target_os = "linux"))]
+fn open_backend_log() -> Option<std::fs::File> {
+    None
+}
+
+fn backend_stdio() -> (Stdio, Stdio) {
+    if let Some(log) = open_backend_log() {
+        if let Ok(log_clone) = log.try_clone() {
+            return (Stdio::from(log), Stdio::from(log_clone));
+        }
+    }
+
+    (Stdio::null(), Stdio::null())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -101,12 +172,33 @@ pub fn run() {
             println!("[PacketSniffer] Starting bundled backend...");
             println!("[PacketSniffer] Backend: {}", backend_exe.display());
 
-            let mut backend = Command::new(&backend_exe)
+            ensure_executable(&backend_exe);
+
+            let (backend_stdout, backend_stderr) = backend_stdio();
+
+            let mut command = Command::new(&backend_exe);
+
+            command
                 .current_dir(backend_dir)
                 .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn()?;
+                .stdout(backend_stdout)
+                .stderr(backend_stderr);
+
+            // Make Python flush its output straight into backend.log and use
+            // UTF-8 regardless of the desktop's locale.
+            #[cfg(target_os = "linux")]
+            command.env("PYTHONUNBUFFERED", "1").env("PYTHONUTF8", "1");
+
+            let mut backend = command.spawn().map_err(|error| {
+                std::io::Error::new(
+                    error.kind(),
+                    format!(
+                        "Could not start the PacketSniffer backend ({}): {}",
+                        backend_exe.display(),
+                        error
+                    ),
+                )
+            })?;
 
             println!("[PacketSniffer] Waiting for backend...");
 
@@ -143,4 +235,3 @@ pub fn run() {
             }
         });
 }
-
