@@ -1,0 +1,207 @@
+name: Build Linux .deb
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-deb-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-deb:
+    name: Build and test the .deb
+    # Oldest supported Ubuntu: the bundled Python backend links against this
+    # glibc, so the package also runs on newer Ubuntu / Debian 12+.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Make helper scripts executable
+        # Files committed from Windows lose their executable bit. dpkg runs
+        # postinst.sh directly, so it must be executable inside the package.
+        run: |
+          chmod +x webkeeper/src-tauri/linux/postinst.sh \
+                   backend/build_backend.sh \
+                   .github/scripts/keyring_test.sh \
+                   .github/scripts/smoke_backend.py
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev \
+            patchelf xdg-utils \
+            gnome-keyring dbus-x11 libsecret-tools xvfb
+
+      # ------------------------------------------------------------------
+      # 1. Python backend  ->  backend/dist/PacketSnifferBackend/
+      # ------------------------------------------------------------------
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-build.txt
+
+      - name: Build the backend with PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements-build.txt
+          bash backend/build_backend.sh
+
+      - name: Smoke-test the backend (no keyring, private-file fallback)
+        run: |
+          python3 .github/scripts/smoke_backend.py \
+            --binary backend/dist/PacketSnifferBackend/PacketSnifferBackend \
+            --mode fallback
+
+      - name: Smoke-test the backend with a real Secret Service keyring
+        # Best effort: it needs gnome-keyring to start inside the CI runner.
+        # A failure here is reported but does not block the .deb build.
+        continue-on-error: true
+        run: |
+          bash .github/scripts/keyring_test.sh \
+            backend/dist/PacketSnifferBackend/PacketSnifferBackend
+
+      # ------------------------------------------------------------------
+      # 2. Frontend + Tauri shell  ->  .deb
+      # ------------------------------------------------------------------
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: webkeeper/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "webkeeper/src-tauri -> target"
+
+      - name: Install frontend dependencies
+        working-directory: webkeeper
+        run: npm ci
+
+      - name: Build the .deb package
+        working-directory: webkeeper
+        run: npx tauri build --bundles deb
+
+      - name: Locate the .deb
+        id: deb
+        run: |
+          set -euo pipefail
+          DEB="$(ls "$PWD"/webkeeper/src-tauri/target/release/bundle/deb/*.deb | head -n 1)"
+          echo "path=$DEB" >> "$GITHUB_OUTPUT"
+          echo "name=$(basename "$DEB")" >> "$GITHUB_OUTPUT"
+          echo "package=$(dpkg-deb -f "$DEB" Package)" >> "$GITHUB_OUTPUT"
+          echo "Built: $DEB"
+
+      # ------------------------------------------------------------------
+      # 3. Verify the package
+      # ------------------------------------------------------------------
+      - name: Inspect the package contents
+        run: |
+          set -euo pipefail
+          DEB="${{ steps.deb.outputs.path }}"
+
+          dpkg-deb --info "$DEB"
+          dpkg-deb -c "$DEB" > contents.txt
+          grep -vE '/_internal/' contents.txt | head -60 || true
+
+          grep -E ' \./usr/bin/packetsniffer$' contents.txt \
+            || { echo "::error::/usr/bin/packetsniffer is missing from the package"; exit 1; }
+          grep -E 'backend/PacketSnifferBackend$' contents.txt \
+            || { echo "::error::bundled backend is missing from the package"; exit 1; }
+          grep -E '\.desktop$' contents.txt \
+            || { echo "::error::no .desktop launcher in the package"; exit 1; }
+          if grep -q 'packetsniff.db' contents.txt; then
+            echo "::error::a database file was packaged; never ship user data"; exit 1
+          fi
+
+          if ! grep -E 'backend/PacketSnifferBackend$' contents.txt | grep -qE '^-rwx'; then
+            echo "::warning::backend is not executable inside the archive; the postinst script will fix it on install"
+          fi
+
+      - name: Install the .deb and test the INSTALLED backend
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y "${{ steps.deb.outputs.path }}"
+
+          BACKEND="$(dpkg -L "${{ steps.deb.outputs.package }}" | grep -E '/backend/PacketSnifferBackend$' | head -n 1)"
+          echo "Installed backend: $BACKEND"
+          test -x "$BACKEND" || { echo "::error::installed backend is not executable"; exit 1; }
+          test -x /usr/bin/packetsniffer || { echo "::error::/usr/bin/packetsniffer is not executable"; exit 1; }
+
+          # Runs as the unprivileged CI user from the read-only install folder,
+          # exactly like a real user's session.
+          python3 .github/scripts/smoke_backend.py --binary "$BACKEND" --mode fallback
+
+      - name: Launch the installed app under Xvfb (best effort)
+        # Starts the real desktop app on a virtual display and waits for the
+        # bundled backend to come up, the same handshake users rely on.
+        continue-on-error: true
+        run: |
+          export WEBKIT_DISABLE_COMPOSITING_MODE=1
+          xvfb-run -a --server-args="-screen 0 1280x800x24" /usr/bin/packetsniffer > app.log 2>&1 &
+
+          READY=0
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8765/api/status > /dev/null 2>&1; then READY=1; break; fi
+            sleep 1
+          done
+
+          sleep 5
+          ALIVE=0
+          pgrep -x packetsniffer > /dev/null && ALIVE=1
+
+          pkill -x packetsniffer || true
+          pkill -f PacketSnifferBackend || true
+
+          echo "backend reachable: $READY, app still running after 5s: $ALIVE"
+          test "$READY" = "1" && test "$ALIVE" = "1"
+
+      - name: Show app and backend logs
+        if: always()
+        run: |
+          echo "----- app.log -----";      cat app.log 2>/dev/null | tail -50 || true
+          echo "----- backend.log -----";  cat "$HOME/.local/share/PacketSniffer/backend.log" 2>/dev/null | tail -80 || true
+
+      # ------------------------------------------------------------------
+      # 4. Publish
+      # ------------------------------------------------------------------
+      - name: Collect release files
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          cp "${{ steps.deb.outputs.path }}" release/
+          (cd release && sha256sum ./*.deb > SHA256SUMS && cat SHA256SUMS)
+
+      - name: Upload the .deb as a workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: packetsniffer-deb
+          path: release/*
+          if-no-files-found: error
+
+      - name: Attach the .deb to the GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true
