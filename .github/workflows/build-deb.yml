@@ -124,7 +124,7 @@ jobs:
           dpkg-deb -c "$DEB" > contents.txt
           grep -vE '/_internal/' contents.txt | head -60 || true
 
-          grep -E ' \./usr/bin/packetsniffer$' contents.txt \
+          grep -E ' (\./)?usr/bin/packetsniffer$' contents.txt \
             || { echo "::error::/usr/bin/packetsniffer is missing from the package"; exit 1; }
           grep -E 'backend/PacketSnifferBackend$' contents.txt \
             || { echo "::error::bundled backend is missing from the package"; exit 1; }
