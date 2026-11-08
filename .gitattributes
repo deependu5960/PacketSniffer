@@ -1,0 +1,5 @@
+# Shell scripts and CI helpers run on Linux: always keep LF line endings,
+# even when the repository is edited on Windows.
+*.sh text eol=lf
+.github/scripts/* text eol=lf
+webkeeper/src-tauri/linux/* text eol=lf

@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# PyInstaller output (rebuilt by backend/build_backend.sh)
+backend/build/
+backend/dist/
+backend/*.spec
+
+# Node / Next.js
+webkeeper/node_modules/
+webkeeper/.next/
+webkeeper/out/
+
+# Tauri / Rust
+webkeeper/src-tauri/target/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
