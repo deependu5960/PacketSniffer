@@ -40,6 +40,11 @@ import {
 } from "lucide-react";
 
 import { useTraffic } from "@/components/TrafficProvider";
+import {
+  isLinuxDesktopApp,
+  isLinuxPlatform,
+  saveCertificateToDownloads,
+} from "@/components/certificateDownload";
 
 const API = "http://127.0.0.1:8765";
 
@@ -585,6 +590,7 @@ export default function Home() {
   const [browserTab, setBrowserTab] = useState<"firefox" | "chromium">(
     "firefox"
   );
+  const [isLinux, setIsLinux] = useState(false);
   const [notification, setNotification] = useState<{
     type: "success" | "error";
     message: string;
@@ -614,6 +620,7 @@ export default function Home() {
   useEffect(() => {
     setCertDownloaded(readFlag(CERT_DOWNLOADED_KEY));
     setCertTrusted(readFlag(CERT_TRUSTED_KEY));
+    setIsLinux(isLinuxPlatform());
   }, []);
 
   useEffect(() => {
@@ -648,6 +655,20 @@ export default function Home() {
     setCertLoading(true);
     setNotification(null);
     try {
+      // Linux desktop app (WebKitGTK): blob downloads are not reliable, so the
+      // backend saves the public certificate into the Downloads folder.
+      if (isLinuxDesktopApp()) {
+        const savedPath = await saveCertificateToDownloads(API);
+
+        setCertDownloaded(true);
+        writeFlag(CERT_DOWNLOADED_KEY, true);
+        setNotification({
+          type: "success",
+          message: `Saved to ${savedPath}`,
+        });
+        return;
+      }
+
       const response = await fetch(certificateUrl);
       if (!response.ok) {
         throw new Error(`Certificate download failed: ${response.status}`);
@@ -1102,7 +1123,8 @@ export default function Home() {
               <Info size={17} className="mt-0.5 shrink-0 text-sky-300" />
               <p className="text-xs leading-5 text-[#a0a0ac]">
                 Downloading only saves the certificate file. It does not
-                install it or change any browser or Windows trust settings.
+                install it or change any browser or{" "}
+                {isLinux ? "system" : "Windows"} trust settings.
               </p>
             </div>
           </div>
@@ -1113,7 +1135,9 @@ export default function Home() {
           <SectionHeading
             number="02"
             title="Import the certificate"
-            description="Choose your browser. Firefox can use its own certificate authority store, so no changes to the Windows certificate store are needed."
+            description={`Choose your browser. Firefox can use its own certificate authority store, so no changes to the ${
+              isLinux ? "system" : "Windows"
+            } certificate store are needed.`}
           />
 
           <div
@@ -1205,6 +1229,66 @@ export default function Home() {
                   <RotateCw size={13} className="shrink-0 text-emerald-300" />
                   About 2 minutes, restart required
                 </div>
+              </aside>
+            </div>
+          ) : isLinux ? (
+            <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_260px]">
+              <ol>
+                <TimelineStep number={1} title="Open certificate settings">
+                  In the browser, open{" "}
+                  <PathChip>
+                    Settings → Privacy and security → Security → Manage
+                    certificates
+                  </PathChip>
+                  .
+                </TimelineStep>
+                <TimelineStep number={2} title="Import the CA">
+                  Open the <PathChip>Authorities</PathChip> tab and click{" "}
+                  <PathChip>Import</PathChip>. Select the downloaded{" "}
+                  <code className="rounded bg-black/30 px-1.5 py-0.5 text-emerald-300">
+                    packetsniff-ca.crt
+                  </code>{" "}
+                  file.
+                </TimelineStep>
+                <TimelineStep number={3} title="Trust it for websites">
+                  Enable <PathChip>Trust this certificate for identifying websites</PathChip>{" "}
+                  and confirm the import.
+                </TimelineStep>
+                <TimelineStep number={4} title="Restart the browser" last>
+                  Close and reopen the browser before testing HTTPS
+                  interception.
+                </TimelineStep>
+              </ol>
+
+              <aside className="h-fit space-y-3 rounded-2xl border border-white/[0.08] bg-[#141416] p-5">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-400/10">
+                    <Monitor size={20} className="text-amber-300" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-[#e5e5ec]">
+                      Chrome, Chromium &amp; Edge
+                    </p>
+                    <p className="text-[11.5px] text-[#858592]">
+                      Own certificate database on Linux
+                    </p>
+                  </div>
+                </div>
+                <div className="border-t border-white/[0.07] pt-3 text-xs leading-5 text-[#92929e]">
+                  <p className="mb-2 font-medium text-[#c4c4ce]">Good to know</p>
+                  Menu names differ slightly between browser versions. If you
+                  cannot find the Authorities tab, the Firefox steps are the
+                  most predictable. PacketSniffer never changes system-wide
+                  trust for you.
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setBrowserTab("firefox")}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-white/[0.1] bg-white/[0.05] px-4 py-2 text-xs font-medium text-[#e0e0e8] transition hover:bg-white/[0.09]"
+                >
+                  Show Firefox steps
+                  <ChevronRight size={14} />
+                </button>
               </aside>
             </div>
           ) : (

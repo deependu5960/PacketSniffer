@@ -289,6 +289,8 @@ type SettingsResponse = {
   configured?: boolean;
   model?: string;
   api_key_masked?: string | null;
+  // "system_keyring", or "local_file" on Linux systems without a keyring.
+  credential_storage?: string | null;
 };
 
 /* ------------------------------------------------------------------ */
@@ -832,6 +834,9 @@ export default function GeminiAIModal({
   const [connection, setConnection] = useState<Connection>("checking");
   const [model, setModel] = useState("");
   const [maskedKey, setMaskedKey] = useState<string | null>(null);
+  const [credentialStorage, setCredentialStorage] = useState<string | null>(
+    null
+  );
 
   const [draftKey, setDraftKey] = useState("");
   const [showKey, setShowKey] = useState(false);
@@ -867,6 +872,7 @@ export default function GeminiAIModal({
   function applySettings(data: SettingsResponse) {
     if (typeof data?.model === "string" && data.model) setModel(data.model);
     setMaskedKey(data?.api_key_masked ?? null);
+    setCredentialStorage(data?.credential_storage ?? null);
     setConnection(data?.configured ? "ready" : "nokey");
     // No API key -> surface the settings panel.
     if (!data?.configured) setPanelOpen(true);
@@ -1809,7 +1815,9 @@ export default function GeminiAIModal({
                 icon={<KeyRound size={14} className="text-emerald-300" />}
                 description={
                   configured
-                    ? "A key is saved in the backend's system credential store. Paste a new one to replace it."
+                    ? credentialStorage === "local_file"
+                      ? "A key is saved in a private file in your PacketSniffer config folder (no system keyring was available). Paste a new one to replace it."
+                      : "A key is saved in the backend's system credential store. Paste a new one to replace it."
                     : "Paste a Gemini API key. It is sent once to your local backend and never stored in the browser."
                 }
               >

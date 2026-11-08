@@ -12,6 +12,13 @@ import {
   AlertCircle,
 } from "lucide-react";
 
+import {
+  isLinuxDesktopApp,
+  saveCertificateToDownloads,
+} from "@/components/certificateDownload";
+
+const API_BASE = "http://127.0.0.1:8765";
+
 const CERTIFICATE_URL =
   process.env.NEXT_PUBLIC_CERTIFICATE_DOWNLOAD_URL ||
   "http://127.0.0.1:8765/api/certificate/download";
@@ -92,6 +99,20 @@ export default function FirstLaunchCertificatePrompt() {
     setNotification(null);
 
     try {
+      // Linux desktop app (WebKitGTK): blob downloads are not reliable, so the
+      // backend saves the public certificate into the Downloads folder.
+      if (isLinuxDesktopApp()) {
+        const savedPath = await saveCertificateToDownloads(API_BASE);
+
+        setNotification({
+          type: "success",
+          message: `Certificate saved to ${savedPath}`,
+        });
+
+        await dismissPrompt();
+        return;
+      }
+
       const response = await fetch(CERTIFICATE_URL);
 
       if (!response.ok) {
