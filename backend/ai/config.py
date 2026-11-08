@@ -1,19 +1,27 @@
 
+import asyncio
 import json
 from pathlib import Path
 from asyncio import Lock
 
-import keyring
 from platformdirs import user_config_path
 from google import genai
 from google.genai import types
 
+from ai.credentials import CredentialStore
 from ai.gemini import generate_response
 
 
 APP_NAME = "PacketSniffer"
 KEYRING_SERVICE = "PacketSniffer.Gemini"
+KEYRING_USERNAME = "gemini_api_key"
 DEFAULT_MODEL = "gemini-2.5-flash"
+
+# On Linux a locked keyring can show an unlock prompt. The backend must not
+# hold up its own startup (the desktop shell gives it 30 seconds) while the
+# user types a password, so the key is loaded in the background if the
+# credential store is slow to answer.
+KEYRING_STARTUP_TIMEOUT = 10.0
 
 
 class AIManager:
@@ -25,11 +33,22 @@ class AIManager:
 
         self.config_file = self.config_dir / "ai.json"
 
+        self.credentials = CredentialStore(
+            service=KEYRING_SERVICE,
+            username=KEYRING_USERNAME,
+            fallback_file=self.config_dir / "gemini_api_key.secret",
+        )
+
         self.client = None
         self.model = DEFAULT_MODEL
         self.api_key_configured = False
 
         self.lock = Lock()
+
+        # Incremented whenever the user changes settings, so a slow
+        # background key lookup can never overwrite newer settings.
+        self._settings_version = 0
+        self._pending_lookup = None
 
     # -----------------------------------------
     # LOAD MODEL CONFIGURATION
@@ -79,15 +98,16 @@ class AIManager:
         temporary_file.replace(self.config_file)
 
     # -----------------------------------------
-    # GET API KEY FROM WINDOWS CREDENTIAL STORE
+    # CREDENTIAL STORE ACCESS (OFF THE EVENT LOOP)
+    #
+    # Windows: Credential Manager
+    # Linux:   Secret Service keyring, or a private 0600 file
+    #          when no keyring is available
     # -----------------------------------------
 
-    def _get_key(self):
+    async def _get_key(self):
 
-        return keyring.get_password(
-            KEYRING_SERVICE,
-            "gemini_api_key"
-        )
+        return await asyncio.to_thread(self.credentials.get)
 
     # -----------------------------------------
     # CREATE GEMINI CLIENT
@@ -107,11 +127,7 @@ class AIManager:
     # INITIALIZE AI
     # -----------------------------------------
 
-    async def initialize(self):
-
-        self._load_model()
-
-        api_key = self._get_key()
+    def _apply_loaded_key(self, api_key: str | None):
 
         if api_key:
 
@@ -128,6 +144,62 @@ class AIManager:
             self.api_key_configured = False
 
             print("[AI] Gemini API key not configured.")
+
+    async def _finish_key_lookup(self, lookup, version: int):
+
+        try:
+            api_key = await lookup
+
+        except asyncio.CancelledError:
+            raise
+
+        except Exception as exc:
+            print(f"[AI] Credential store lookup failed: {exc!r}")
+            return
+
+        async with self.lock:
+
+            # The user changed settings while we were waiting.
+            if version != self._settings_version or self.client is not None:
+                return
+
+            if api_key:
+                self._apply_loaded_key(api_key)
+
+    async def initialize(self):
+
+        self._load_model()
+
+        lookup = asyncio.ensure_future(
+            asyncio.to_thread(self.credentials.get)
+        )
+
+        try:
+            api_key = await asyncio.wait_for(
+                asyncio.shield(lookup),
+                timeout=KEYRING_STARTUP_TIMEOUT,
+            )
+
+        except asyncio.TimeoutError:
+
+            print(
+                "[AI] Credential store is still waiting (it may be locked). "
+                "Continuing startup; the API key will load once available."
+            )
+
+            self._pending_lookup = asyncio.ensure_future(
+                self._finish_key_lookup(lookup, self._settings_version)
+            )
+
+            return
+
+        except Exception as exc:
+
+            print(f"[AI] Credential store lookup failed: {exc!r}")
+
+            api_key = None
+
+        self._apply_loaded_key(api_key)
 
     # -----------------------------------------
     # UPDATE USER SETTINGS
@@ -149,19 +221,12 @@ class AIManager:
                     "Model name cannot be empty."
                 )
 
-            current_key = self._get_key()
+            self._settings_version += 1
 
             # USER WANTS TO REMOVE API KEY
             if clear_api_key:
 
-                try:
-                    keyring.delete_password(
-                        KEYRING_SERVICE,
-                        "gemini_api_key"
-                    )
-
-                except keyring.errors.PasswordDeleteError:
-                    pass
+                await asyncio.to_thread(self.credentials.delete)
 
                 new_key = None
 
@@ -170,16 +235,15 @@ class AIManager:
 
                 new_key = api_key.strip()
 
-                keyring.set_password(
-                    KEYRING_SERVICE,
-                    "gemini_api_key",
+                await asyncio.to_thread(
+                    self.credentials.set,
                     new_key
                 )
 
             # KEEP EXISTING API KEY
             else:
 
-                new_key = current_key
+                new_key = await self._get_key()
 
             new_client = (
                 self._create_client(new_key)
@@ -218,6 +282,12 @@ class AIManager:
             "model": self.model,
             "api_key_masked": (
                 "••••••••"
+                if self.api_key_configured
+                else None
+            ),
+            # "system_keyring" or "local_file" (Linux without a keyring).
+            "credential_storage": (
+                self.credentials.storage
                 if self.api_key_configured
                 else None
             )
@@ -289,6 +359,11 @@ class AIManager:
     # -----------------------------------------
 
     async def close(self):
+
+        pending = self._pending_lookup
+
+        if pending is not None and not pending.done():
+            pending.cancel()
 
         async with self.lock:
 

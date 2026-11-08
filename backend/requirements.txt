@@ -9,4 +9,6 @@ platformdirs
 wsproto>=1.2.0
 google-genai
 keyring
-platformdirs
+# Linux: keyring talks to GNOME Keyring / KDE Wallet through the Secret Service
+SecretStorage>=3.3; sys_platform == "linux"
+jeepney>=0.8; sys_platform == "linux"

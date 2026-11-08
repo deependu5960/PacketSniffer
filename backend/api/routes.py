@@ -1,4 +1,5 @@
 
+import asyncio
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -7,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from config import PROXY_HOST, PROXY_PORT
 from certificates.ca import CA_CERT_PATH
+from system_paths import export_file_to_downloads
 
 from repeater.sender import RepeaterError, send_request
 
@@ -415,3 +417,38 @@ async def download_certificate():
         media_type="application/x-pem-file",
         filename="packetsniff-ca.crt",
     )
+
+
+@router.post("/certificate/save")
+async def save_certificate_to_downloads():
+    """
+    Copy the public Root CA certificate into the user's Downloads folder.
+
+    The desktop app uses this on Linux, where the embedded WebKitGTK view
+    does not reliably handle browser-style blob downloads.
+    """
+
+    if not CA_CERT_PATH.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Root CA certificate not found",
+        )
+
+    try:
+        saved_path = await asyncio.to_thread(
+            export_file_to_downloads,
+            CA_CERT_PATH,
+            "packetsniff-ca.crt",
+        )
+
+    except OSError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not save the certificate: {exc.strerror or exc}",
+        ) from exc
+
+    return {
+        "success": True,
+        "filename": saved_path.name,
+        "path": str(saved_path),
+    }
