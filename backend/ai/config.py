@@ -1,4 +1,3 @@
-
 import asyncio
 import json
 from pathlib import Path
@@ -15,7 +14,7 @@ from ai.gemini import generate_response
 APP_NAME = "PacketSniffer"
 KEYRING_SERVICE = "PacketSniffer.Gemini"
 KEYRING_USERNAME = "gemini_api_key"
-DEFAULT_MODEL = "gemini-2.5-flash"
+DEFAULT_MODEL = "gemini-3.5-flash-lite"
 
 # On Linux a locked keyring can show an unlock prompt. The backend must not
 # hold up its own startup (the desktop shell gives it 30 seconds) while the
