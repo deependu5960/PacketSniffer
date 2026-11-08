@@ -146,3 +146,28 @@ code {
 pre {
   overflow-x: auto;
 }
+/* ============================================================
+   Linux (WebKitGTK) rendering workarounds
+   data-os="linux" is set by components/LinuxRenderFixes.tsx.
+   Large CSS blurs, drop shadows and backdrop blur are purely
+   decorative, but WebKitGTK paints them badly in virtual machines
+   and with software rendering (parts of the window stay unpainted).
+   Windows and browsers are not affected.
+   ============================================================ */
+
+/* Decorative glow circles (blur-2xl / blur-3xl): not drawn on Linux. */
+html[data-os="linux"] [class*="blur-2xl"]:not([class*="backdrop-blur"]),
+html[data-os="linux"] [class*="blur-3xl"]:not([class*="backdrop-blur"]) {
+  display: none !important;
+}
+
+/* Drop-shadow filters on images / SVG. */
+html[data-os="linux"] [class*="drop-shadow"] {
+  filter: none !important;
+}
+
+/* Backdrop blur on overlays and toasts (the dark tint stays). */
+html[data-os="linux"] [class*="backdrop-blur"] {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
