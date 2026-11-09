@@ -232,8 +232,8 @@ See the [LICENSE](LICENSE) file for licensing information.
 
 \<p align="center">
 
-**PacketSniffer — Security Workbench**
-
-*Inspect. Intercept. Analyze. Secure.*
+  **PacketSniffer — Security Workbench**
+  
+  *Inspect. Intercept. Analyze. Secure.*
 
 \</p>
