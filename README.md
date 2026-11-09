@@ -232,7 +232,7 @@ See the [LICENSE](LICENSE) file for licensing information.
 
 <p align="center">
 
-  **PacketSniffer — Security Workbench**
+  **PacketSniffer — Web Testing Toolkit**
   
   *Inspect. Intercept. Analyze. Secure.*
 
