@@ -106,13 +106,28 @@ Download the latest available build from the GitHub Releases page.
 3. Follow the installation instructions for the downloaded package.
 4. Launch PacketSniffer.
 
-### Windows
+### 🪟 Windows
 
-Windows distribution builds are also available through the project's release distribution.
+PacketSniffer is available for Windows through two installation options.
 
-Check the Releases page for the available installers.
+**Option 1 — Microsoft Store (Recommended)**
 
-> **Note:** Available packages and supported architectures may vary between releases.
+Install PacketSniffer directly from the Microsoft Store.
+
+[**Get it on Microsoft Store →**](ms-windows-store://pdp/?productid=9N3H9B8LMN8H)
+
+**Option 2 — Standalone MSI Installer**
+
+Prefer installing manually? Download the Windows MSI installer from GitHub Releases.
+
+[**Download Windows MSI →**](../../releases/latest)
+
+1. Download the latest `.msi` installer.
+2. Open the downloaded file.
+3. Follow the installation wizard.
+4. Launch PacketSniffer.
+
+> **Note:** The MSI installer is an alternative distribution method. Always download it from the official PacketSniffer repository and verify its digital signature before installation.
 
 ---
 
