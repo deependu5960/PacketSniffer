@@ -224,12 +224,6 @@ Special appreciation to everyone building tools, sharing research, and making se
 
 ---
 
-## License
-
-See the [LICENSE](LICENSE) file for licensing information.
-
----
-
 <p align="center">
 
   **PacketSniffer — Web Testing Toolkit**
